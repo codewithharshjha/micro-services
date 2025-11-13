@@ -3,8 +3,6 @@ pipeline {
     
     environment {
         DOCKER_COMPOSE_FILE = 'docker-compose.yml'
-        REGISTRY = credentials('docker-registry') // Configure in Jenkins credentials
-        IMAGE_TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
         BRANCH_NAME = "${env.BRANCH_NAME ?: env.GIT_BRANCH}"
     }
     
@@ -12,7 +10,6 @@ pipeline {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timeout(time: 30, unit: 'MINUTES')
         timestamps()
-        ansiColor('xterm')
     }
     
     stages {
@@ -21,8 +18,9 @@ pipeline {
                 script {
                     echo "Checking out code from ${env.GIT_URL}"
                     checkout scm
-                    sh 'git rev-parse --short HEAD > .git/commit-id'
-                    env.GIT_COMMIT_SHORT = sh(script: 'cat .git/commit-id', returnStdout: true).trim()
+                    env.GIT_COMMIT_SHORT = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
+                    env.IMAGE_TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT_SHORT}"
+                    echo "Image tag will be: ${env.IMAGE_TAG}"
                 }
             }
         }
@@ -239,23 +237,67 @@ pipeline {
                 script {
                     echo "Deploying to ${DEPLOY_ENV} environment"
                     
-                    // Stop existing containers
-                    sh "docker-compose -f ${DOCKER_COMPOSE_FILE} down || true"
+                    // ============================================
+                    // CREDENTIALS SETUP:
+                    // These credentials must be created in Jenkins first.
+                    // Go to: Manage Jenkins → Credentials → Add Credentials
+                    // Create "Secret text" type with IDs matching your .env file:
+                    // JWT_SECRET, SESSION_SECRET, GOOGLE_CLIENT_ID, etc. (uppercase)
+                    // See JENKINS_CREDENTIALS_SETUP.txt for complete list.
+                    // ============================================
                     
-                    // Pull latest images (if using registry) or use local builds
-                    // sh "docker-compose -f ${DOCKER_COMPOSE_FILE} pull || true"
-                    
-                    // Start services
-                    sh "docker-compose -f ${DOCKER_COMPOSE_FILE} up -d --build"
-                    
-                    // Wait for services to be healthy
-                    sh "sleep 10"
-                    
-                    // Health check
-                    sh """
-                        echo "Checking service health..."
-                        docker-compose -f ${DOCKER_COMPOSE_FILE} ps
-                    """
+                    // Load required credentials from Jenkins
+                    // Note: PostgreSQL and RabbitMQ credentials are optional (will use defaults)
+                    withCredentials([
+                        // Required: User Service Credentials
+                        string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
+                        string(credentialsId: 'SESSION_SECRET', variable: 'SESSION_SECRET'),
+                        string(credentialsId: 'GOOGLE_CLIENT_ID', variable: 'GOOGLE_CLIENT_ID'),
+                        string(credentialsId: 'GOOGLE_CLIENT_SECRET', variable: 'GOOGLE_CLIENT_SECRET'),
+                        string(credentialsId: 'GITHUB_CLIENT_ID', variable: 'GITHUB_CLIENT_ID'),
+                        string(credentialsId: 'GITHUB_CLIENT_SECRET', variable: 'GITHUB_CLIENT_SECRET')
+                    ]) {
+                        // Stop existing containers
+                        sh "docker-compose -f ${DOCKER_COMPOSE_FILE} down || true"
+                        
+                        // Set defaults for optional PostgreSQL and RabbitMQ credentials
+                        // These match the defaults in docker-compose.yml
+                        script {
+                            env.POSTGRES_USER = env.POSTGRES_USER ?: 'postgres'
+                            env.POSTGRES_PASSWORD = env.POSTGRES_PASSWORD ?: 'password'
+                            env.POSTGRES_DB = env.POSTGRES_DB ?: 'micro_ecom'
+                            env.RABBITMQ_USER = env.RABBITMQ_USER ?: 'guest'
+                            env.RABBITMQ_PASS = env.RABBITMQ_PASS ?: 'guest'
+                            echo "Using PostgreSQL defaults: user=${env.POSTGRES_USER}, db=${env.POSTGRES_DB}"
+                            echo "Using RabbitMQ defaults: user=${env.RABBITMQ_USER}"
+                        }
+                        
+                        // Build and start services with credentials as environment variables
+                        // Docker Compose will automatically read these from the environment
+                        sh """
+                            JWT_SECRET='${JWT_SECRET}' \
+                            SESSION_SECRET='${SESSION_SECRET}' \
+                            GOOGLE_CLIENT_ID='${GOOGLE_CLIENT_ID}' \
+                            GOOGLE_CLIENT_SECRET='${GOOGLE_CLIENT_SECRET}' \
+                            GITHUB_CLIENT_ID='${GITHUB_CLIENT_ID}' \
+                            GITHUB_CLIENT_SECRET='${GITHUB_CLIENT_SECRET}' \
+                            POSTGRES_PASSWORD='${env.POSTGRES_PASSWORD}' \
+                            POSTGRES_USER='${env.POSTGRES_USER}' \
+                            POSTGRES_DB='${env.POSTGRES_DB}' \
+                            RABBITMQ_USER='${env.RABBITMQ_USER}' \
+                            RABBITMQ_PASS='${env.RABBITMQ_PASS}' \
+                            docker-compose -f ${DOCKER_COMPOSE_FILE} up -d --build
+                        """
+                        
+                        // Wait for services to be healthy
+                        sh "sleep 10"
+                        
+                        // Health check
+                        sh """
+                            echo "Checking service health..."
+                            docker-compose -f ${DOCKER_COMPOSE_FILE} ps
+                        """
+                    }
                 }
             }
         }
