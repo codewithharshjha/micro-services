@@ -33,7 +33,7 @@ app.use(
   app.use(passport.session());
 
 app.use("/api/v1/auth",userRoute)
-
+console.log("User service is running on port 4001")
 // Test database connection on startup
 async function testDatabaseConnection() {
     try {
