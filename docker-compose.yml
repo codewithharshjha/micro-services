@@ -1,0 +1,74 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: micro_ecom
+    ports: ["5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  mongo:
+    image: mongo:6
+    ports: ["27017:27017"]
+    volumes:
+      - mongodata:/data/db
+
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports: ["5672:5672", "15672:15672"]
+
+  api-gateway:
+    build: ./services/api-gateway
+    environment:
+      PORT: 3000
+      USER_SERVICE_URL: http://user-service:4001
+      PRODUCT_SERVICE_URL: http://product-service:4002
+      ORDER_SERVICE_URL: http://order-service:4003
+    ports: ["3000:3000"]
+    depends_on:
+      - user-service
+
+  user-service:
+    build: ./services/user-service
+    environment:
+      PORT: 4001
+      DATABASE_URL: postgres://postgres:password@postgres:5432/micro_ecom
+      JWT_SECRET: harshjha
+      SESSION_SECRET: ankitajha
+      GOOGLE_CLIENT_ID: 571469880581-i09k5g5h2rksngp67c7cm6sn6k9ajbna.apps.googleusercontent.com
+      GOOGLE_CLIENT_SECRET: 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
+      GITHUB_CLIENT_ID: Ov23li4uVwsxImGTBasf
+      GITHUB_CLIENT_SECRET: 1e60a08e3fde96aa3d0bd0b8dc3ef9361773cd57
+    depends_on:
+      - postgres
+    ports: ["4001:4001"]
+    volumes:
+      - ./services/user-service/prisma:/app/prisma
+
+  product-service:
+    build: ./services/product-service
+    environment:
+      MONGO_URI: mongodb://mongo:27017/micro_ecom
+    depends_on:
+      - mongo
+    ports: ["4002:4002"]
+
+  order-service:
+    build: ./services/order-service
+    environment:
+      DATABASE_URL: postgres://postgres:password@postgres:5432/micro_ecom
+      RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672
+    depends_on:
+      - postgres
+      - rabbitmq
+    ports: ["4003:4003"]
+
+volumes:
+  pgdata:
+  mongodata:
