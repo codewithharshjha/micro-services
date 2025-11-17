@@ -19,15 +19,14 @@ export const RegisterUser = async (req: Request, res: Response) => {
 
     try {
         const { name, email, password, phone } = req.body;
-        console.log("[RegisterUser] Request body received:", { name, email, phone: phone ? "***" : undefined });
+
         
         if (!name || !email || !password || !phone) {
             console.log("[RegisterUser] Missing required fields");
             return res.status(400).json({ message: "Invalid data" });
         }
         
-        // 🔹 Validate with Zod
-        console.log("[RegisterUser] Validating data with Zod...");
+    ;
         const validatedData = userSchema.safeParse({ name, email, password, phone });
 
         if (validatedData.error) {
@@ -35,8 +34,7 @@ export const RegisterUser = async (req: Request, res: Response) => {
             return res.status(400).json({ message: validatedData.error.message })
         }
         
-        // 🔹 Check if user already exists
-        console.log("[RegisterUser] Checking if user exists in database...");
+ 
         const existingUser = await prisma.user.findUnique({
             where: { email: validatedData.data?.email! },
         });
@@ -46,8 +44,7 @@ export const RegisterUser = async (req: Request, res: Response) => {
             return res.status(400).json({ message: "User already exists" });
         }
 
-        // 🔹 Hash password
-        console.log("[RegisterUser] Hashing password...");
+      
         const hashedPassword = await bcrypt.hash(validatedData.data?.password as string, 10);
 
         // 🔹 Create user
