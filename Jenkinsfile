@@ -1,3 +1,9 @@
+def runInNode(Closure body) {
+    docker.image('node:18-bullseye').inside {
+        body()
+    }
+}
+
 pipeline {
     agent any
     
@@ -52,7 +58,9 @@ pipeline {
                         dir('services/api-gateway') {
                             script {
                                 try {
-                                    sh 'npm install'
+                                    runInNode {
+                                        sh 'npm install'
+                                    }
                                     // Add linting if configured
                                     // sh 'npm run lint'
                                 } catch (Exception e) {
@@ -67,7 +75,9 @@ pipeline {
                         dir('services/user-service') {
                             script {
                                 try {
-                                    sh 'npm install'
+                                    runInNode {
+                                        sh 'npm install'
+                                    }
                                     // Add linting if configured
                                     // sh 'npm run lint'
                                 } catch (Exception e) {
@@ -86,8 +96,10 @@ pipeline {
                     steps {
                         dir('services/api-gateway') {
                             script {
-                                sh 'npm install'
-                                sh 'npm run build || echo "No build script, skipping"'
+                                runInNode {
+                                    sh 'npm install'
+                                    sh 'npm run build || echo "No build script, skipping"'
+                                }
                             }
                         }
                     }
@@ -96,10 +108,12 @@ pipeline {
                     steps {
                         dir('services/user-service') {
                             script {
-                                sh 'npm install'
-                                // Generate Prisma Client
-                                sh 'npx prisma generate || echo "Prisma generate skipped"'
-                                sh 'npm run build || echo "No build script, skipping"'
+                                runInNode {
+                                    sh 'npm install'
+                                    // Generate Prisma Client
+                                    sh 'npx prisma generate || echo "Prisma generate skipped"'
+                                    sh 'npm run build || echo "No build script, skipping"'
+                                }
                             }
                         }
                     }
@@ -108,8 +122,10 @@ pipeline {
                     steps {
                         dir('services/product-service') {
                             script {
-                                sh 'npm install || echo "No package.json found"'
-                                sh 'npm run build || echo "No build script, skipping"'
+                                runInNode {
+                                    sh 'npm install || echo "No package.json found"'
+                                    sh 'npm run build || echo "No build script, skipping"'
+                                }
                             }
                         }
                     }
@@ -118,8 +134,10 @@ pipeline {
                     steps {
                         dir('services/order-service') {
                             script {
-                                sh 'npm install || echo "No package.json found"'
-                                sh 'npm run build || echo "No build script, skipping"'
+                                runInNode {
+                                    sh 'npm install || echo "No package.json found"'
+                                    sh 'npm run build || echo "No build script, skipping"'
+                                }
                             }
                         }
                     }
@@ -134,7 +152,9 @@ pipeline {
                         dir('services/api-gateway') {
                             script {
                                 try {
-                                    sh 'npm test || echo "No tests configured"'
+                                    runInNode {
+                                        sh 'npm test || echo "No tests configured"'
+                                    }
                                 } catch (Exception e) {
                                     echo "Tests failed or not configured: ${e.message}"
                                     // Uncomment to fail build on test failure
@@ -149,7 +169,9 @@ pipeline {
                         dir('services/user-service') {
                             script {
                                 try {
-                                    sh 'npm test || echo "No tests configured"'
+                                    runInNode {
+                                        sh 'npm test || echo "No tests configured"'
+                                    }
                                 } catch (Exception e) {
                                     echo "Tests failed or not configured: ${e.message}"
                                     // Uncomment to fail build on test failure
