@@ -233,24 +233,26 @@ pipeline {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: 'docker-registry', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh """
-                            set -e
-                            REGISTRY_HOST=\$(echo ${REGISTRY} | cut -d'/' -f1)
-                            if [ "${REGISTRY}" = "\${REGISTRY_HOST}" ]; then
-                                REGISTRY_HOST=docker.io
-                            fi
-                            
-                            echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin \${REGISTRY_HOST}
-                            
-                            for svc in api-gateway user-service product-service order-service; do
-                                if docker image inspect ${REGISTRY}/\${svc}:${IMAGE_TAG} >/dev/null 2>&1; then
-                                    docker push ${REGISTRY}/\${svc}:${IMAGE_TAG}
-                                    docker push ${REGISTRY}/\${svc}:latest
-                                else
-                                    echo "Skipping push for \${svc} (image not built)"
+                        withEnv(["DOCKER_PASS=${DOCKER_PASS}", "DOCKER_USER=${DOCKER_USER}"]) {
+                            sh '''
+                                set -e
+                                REGISTRY_HOST=$(echo ${REGISTRY} | cut -d'/' -f1)
+                                if [ "${REGISTRY}" = "${REGISTRY_HOST}" ]; then
+                                    REGISTRY_HOST=docker.io
                                 fi
-                            done
-                        """
+                                
+                                echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin ${REGISTRY_HOST}
+                                
+                                for svc in api-gateway user-service product-service order-service; do
+                                    if docker image inspect ${REGISTRY}/${svc}:${IMAGE_TAG} >/dev/null 2>&1; then
+                                        docker push ${REGISTRY}/${svc}:${IMAGE_TAG}
+                                        docker push ${REGISTRY}/${svc}:latest
+                                    else
+                                        echo "Skipping push for ${svc} (image not built)"
+                                    fi
+                                done
+                            '''
+                        }
                     }
                 }
             }
