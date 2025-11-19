@@ -289,8 +289,8 @@ pipeline {
                     echo "Building Docker images with tag: ${IMAGE_TAG}"
                     echo "Changed services to build: ${env.CHANGED_SERVICES ?: 'ALL'}"
                     
-                    def changedServicesList = env.CHANGED_SERVICES ? env.CHANGED_SERVICES.split(',') : []
-                    def servicesToBuild = changedServicesList.isEmpty() ? 
+                    def changedServicesList = env.CHANGED_SERVICES ? env.CHANGED_SERVICES.split(',').toList() : []
+                    def servicesToBuild = (changedServicesList == null || changedServicesList.size() == 0) ? 
                         ['api-gateway', 'user-service', 'product-service', 'order-service'] : 
                         changedServicesList
                     
@@ -350,9 +350,9 @@ pipeline {
             }
             steps {
                 script {
-                    def servicesToPush = env.BUILT_SERVICES ? env.BUILT_SERVICES.split(',') : []
+                    def servicesToPush = env.BUILT_SERVICES ? env.BUILT_SERVICES.split(',').toList() : []
                     
-                    if (servicesToPush.isEmpty()) {
+                    if (servicesToPush == null || servicesToPush.size() == 0) {
                         echo "No services were built - skipping push"
                         return
                     }
