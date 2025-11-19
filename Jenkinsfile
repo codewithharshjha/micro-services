@@ -10,6 +10,7 @@ pipeline {
     environment {
         DOCKER_COMPOSE_FILE = 'docker-compose.yml'
         BRANCH_NAME = "${env.BRANCH_NAME ?: env.GIT_BRANCH}"
+        REGISTRY = "${env.DOCKER_REGISTRY ?: 'docker.io/codewithharshjha'}"
     }
     
     options {
@@ -194,25 +195,25 @@ pipeline {
                     
                     builds['api-gateway'] = {
                         dir('services/api-gateway') {
-                            sh "docker build -t api-gateway:${IMAGE_TAG} -t api-gateway:latest ."
+                            sh "docker build -t ${REGISTRY}/api-gateway:${IMAGE_TAG} -t ${REGISTRY}/api-gateway:latest ."
                         }
                     }
                     
                     builds['user-service'] = {
                         dir('services/user-service') {
-                            sh "docker build -t user-service:${IMAGE_TAG} -t user-service:latest ."
+                            sh "docker build -t ${REGISTRY}/user-service:${IMAGE_TAG} -t ${REGISTRY}/user-service:latest ."
                         }
                     }
                     
                     builds['product-service'] = {
                         dir('services/product-service') {
-                            sh "docker build -t product-service:${IMAGE_TAG} -t product-service:latest . || echo 'Product service build skipped'"
+                            sh "docker build -t ${REGISTRY}/product-service:${IMAGE_TAG} -t ${REGISTRY}/product-service:latest . || echo 'Product service build skipped'"
                         }
                     }
                     
                     builds['order-service'] = {
                         dir('services/order-service') {
-                            sh "docker build -t order-service:${IMAGE_TAG} -t order-service:latest . || echo 'Order service build skipped'"
+                            sh "docker build -t ${REGISTRY}/order-service:${IMAGE_TAG} -t ${REGISTRY}/order-service:latest . || echo 'Order service build skipped'"
                         }
                     }
                     
@@ -231,17 +232,26 @@ pipeline {
             }
             steps {
                 script {
-                    echo "Pushing Docker images to registry"
-                    // Uncomment and configure when registry is set up
-                    /*
                     withCredentials([usernamePassword(credentialsId: 'docker-registry', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh "echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin ${REGISTRY}"
-                        sh "docker tag api-gateway:${IMAGE_TAG} ${REGISTRY}/api-gateway:${IMAGE_TAG}"
-                        sh "docker push ${REGISTRY}/api-gateway:${IMAGE_TAG}"
-                        // Repeat for other services
+                        sh """
+                            set -e
+                            REGISTRY_HOST=\$(echo ${REGISTRY} | cut -d'/' -f1)
+                            if [ "${REGISTRY}" = "${REGISTRY_HOST}" ]; then
+                                REGISTRY_HOST=docker.io
+                            fi
+                            
+                            echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin ${REGISTRY_HOST}
+                            
+                            for svc in api-gateway user-service product-service order-service; do
+                                if docker image inspect ${REGISTRY}/\${svc}:${IMAGE_TAG} >/dev/null 2>&1; then
+                                    docker push ${REGISTRY}/\${svc}:${IMAGE_TAG}
+                                    docker push ${REGISTRY}/\${svc}:latest
+                                else
+                                    echo "Skipping push for \${svc} (image not built)"
+                                fi
+                            done
+                        """
                     }
-                    */
-                    echo "Docker registry push skipped (configure registry credentials to enable)"
                 }
             }
         }
@@ -294,22 +304,26 @@ pipeline {
                             echo "Using RabbitMQ defaults: user=${env.RABBITMQ_USER}"
                         }
                         
-                        // Build and start services with credentials as environment variables
-                        // Docker Compose will automatically read these from the environment
-                        sh """
-                            JWT_SECRET='${JWT_SECRET}' \
-                            SESSION_SECRET='${SESSION_SECRET}' \
-                            GOOGLE_CLIENT_ID='${GOOGLE_CLIENT_ID}' \
-                            GOOGLE_CLIENT_SECRET='${GOOGLE_CLIENT_SECRET}' \
-                            GITHUB_CLIENT_ID='${GITHUB_CLIENT_ID}' \
-                            GITHUB_CLIENT_SECRET='${GITHUB_CLIENT_SECRET}' \
-                            POSTGRES_PASSWORD='${env.POSTGRES_PASSWORD}' \
-                            POSTGRES_USER='${env.POSTGRES_USER}' \
-                            POSTGRES_DB='${env.POSTGRES_DB}' \
-                            RABBITMQ_USER='${env.RABBITMQ_USER}' \
-                            RABBITMQ_PASS='${env.RABBITMQ_PASS}' \
-                            docker-compose -f ${DOCKER_COMPOSE_FILE} up -d --build
-                        """
+                        def composeEnv = [
+                            "REGISTRY=${env.REGISTRY}",
+                            "IMAGE_TAG=${IMAGE_TAG}",
+                            "JWT_SECRET=${JWT_SECRET}",
+                            "SESSION_SECRET=${SESSION_SECRET}",
+                            "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}",
+                            "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}",
+                            "GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}",
+                            "GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}",
+                            "POSTGRES_PASSWORD=${env.POSTGRES_PASSWORD}",
+                            "POSTGRES_USER=${env.POSTGRES_USER}",
+                            "POSTGRES_DB=${env.POSTGRES_DB}",
+                            "RABBITMQ_USER=${env.RABBITMQ_USER}",
+                            "RABBITMQ_PASS=${env.RABBITMQ_PASS}"
+                        ]
+                        
+                        withEnv(composeEnv) {
+                            sh "docker-compose -f ${DOCKER_COMPOSE_FILE} pull --parallel"
+                            sh "docker-compose -f ${DOCKER_COMPOSE_FILE} up -d --force-recreate"
+                        }
                         
                         // Wait for services to be healthy
                         sh "sleep 10"

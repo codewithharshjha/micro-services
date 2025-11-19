@@ -24,6 +24,7 @@ services:
     ports: ["5672:5672", "15672:15672"]
 
   api-gateway:
+    image: ${REGISTRY:-codewithharshjha}/api-gateway:${IMAGE_TAG:-latest}
     build: ./services/api-gateway
     environment:
       PORT: 3000
@@ -35,6 +36,7 @@ services:
       - user-service
 
   user-service:
+    image: ${REGISTRY:-codewithharshjha}/user-service:${IMAGE_TAG:-latest}
     build: ./services/user-service
     environment:
       PORT: 4001
@@ -52,6 +54,7 @@ services:
       - ./services/user-service/prisma:/app/prisma
 
   product-service:
+    image: ${REGISTRY:-codewithharshjha}/product-service:${IMAGE_TAG:-latest}
     build: ./services/product-service
     environment:
       MONGO_URI: mongodb://mongo:27017/micro_ecom
@@ -60,6 +63,7 @@ services:
     ports: ["4002:4002"]
 
   order-service:
+    image: ${REGISTRY:-codewithharshjha}/order-service:${IMAGE_TAG:-latest}
     build: ./services/order-service
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-micro_ecom}
