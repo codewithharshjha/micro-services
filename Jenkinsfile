@@ -4,6 +4,59 @@ def runInNode(Closure body) {
     }
 }
 
+def detectChangedServices() {
+    def services = ['api-gateway', 'user-service', 'product-service', 'order-service']
+    def changedServices = []
+    
+    // Get previous commit hash (if available)
+    def previousCommit = sh(
+        script: "git rev-parse HEAD~1 2>/dev/null || echo ''",
+        returnStdout: true
+    ).trim()
+    
+    // If this is the first commit or can't determine changes, build all
+    if (!previousCommit) {
+        echo "First build or unable to detect changes - building all services"
+        return services
+    }
+    
+    // Check if common files changed (docker-compose.yml, Jenkinsfile, etc.)
+    def commonFilesChanged = sh(
+        script: "git diff --name-only ${previousCommit} HEAD | grep -E '^(docker-compose.yml|Jenkinsfile|\\.git)' || true",
+        returnStdout: true
+    ).trim()
+    
+    if (commonFilesChanged) {
+        echo "Common files changed - building all services"
+        return services
+    }
+    
+    // Check which service directories changed
+    def changedFiles = sh(
+        script: "git diff --name-only ${previousCommit} HEAD",
+        returnStdout: true
+    ).trim()
+    
+    services.each { service ->
+        if (changedFiles.contains("services/${service}/")) {
+            changedServices.add(service)
+        }
+    }
+    
+    // If no specific service changed but files changed, build all (safety)
+    if (changedFiles && changedServices.isEmpty()) {
+        echo "Files changed but no service detected - building all services for safety"
+        return services
+    }
+    
+    // If nothing changed, return empty (shouldn't happen but handle gracefully)
+    if (changedServices.isEmpty()) {
+        echo "No changes detected - will skip build"
+    }
+    
+    return changedServices
+}
+
 pipeline {
     agent any
     
@@ -48,6 +101,11 @@ pipeline {
                         env.DEPLOY_ENV = 'staging'
                     }
                     echo "Deployment Environment: ${DEPLOY_ENV}"
+                    
+                    // Detect changed services
+                    def changedServices = detectChangedServices()
+                    env.CHANGED_SERVICES = changedServices.join(',')
+                    echo "Changed services: ${env.CHANGED_SERVICES ?: 'ALL (first build or common files changed)'}"
                 }
             }
         }
@@ -55,6 +113,11 @@ pipeline {
         stage('Lint & Code Quality') {
             parallel {
                 stage('Lint API Gateway') {
+                    when { 
+                        anyOf {
+                            expression { env.CHANGED_SERVICES == null || env.CHANGED_SERVICES.contains('api-gateway') || !env.CHANGED_SERVICES }
+                        }
+                    }
                     steps {
                         dir('services/api-gateway') {
                             script {
@@ -72,6 +135,11 @@ pipeline {
                     }
                 }
                 stage('Lint User Service') {
+                    when { 
+                        anyOf {
+                            expression { env.CHANGED_SERVICES == null || env.CHANGED_SERVICES.contains('user-service') || !env.CHANGED_SERVICES }
+                        }
+                    }
                     steps {
                         dir('services/user-service') {
                             script {
@@ -94,6 +162,11 @@ pipeline {
         stage('Build Services') {
             parallel {
                 stage('Build API Gateway') {
+                    when { 
+                        anyOf {
+                            expression { env.CHANGED_SERVICES == null || env.CHANGED_SERVICES.contains('api-gateway') || !env.CHANGED_SERVICES }
+                        }
+                    }
                     steps {
                         dir('services/api-gateway') {
                             script {
@@ -106,6 +179,11 @@ pipeline {
                     }
                 }
                 stage('Build User Service') {
+                    when { 
+                        anyOf {
+                            expression { env.CHANGED_SERVICES == null || env.CHANGED_SERVICES.contains('user-service') || !env.CHANGED_SERVICES }
+                        }
+                    }
                     steps {
                         dir('services/user-service') {
                             script {
@@ -120,6 +198,11 @@ pipeline {
                     }
                 }
                 stage('Build Product Service') {
+                    when { 
+                        anyOf {
+                            expression { env.CHANGED_SERVICES == null || env.CHANGED_SERVICES.contains('product-service') || !env.CHANGED_SERVICES }
+                        }
+                    }
                     steps {
                         dir('services/product-service') {
                             script {
@@ -132,6 +215,11 @@ pipeline {
                     }
                 }
                 stage('Build Order Service') {
+                    when { 
+                        anyOf {
+                            expression { env.CHANGED_SERVICES == null || env.CHANGED_SERVICES.contains('order-service') || !env.CHANGED_SERVICES }
+                        }
+                    }
                     steps {
                         dir('services/order-service') {
                             script {
@@ -149,6 +237,11 @@ pipeline {
         stage('Test Services') {
             parallel {
                 stage('Test API Gateway') {
+                    when { 
+                        anyOf {
+                            expression { env.CHANGED_SERVICES == null || env.CHANGED_SERVICES.contains('api-gateway') || !env.CHANGED_SERVICES }
+                        }
+                    }
                     steps {
                         dir('services/api-gateway') {
                             script {
@@ -166,6 +259,11 @@ pipeline {
                     }
                 }
                 stage('Test User Service') {
+                    when { 
+                        anyOf {
+                            expression { env.CHANGED_SERVICES == null || env.CHANGED_SERVICES.contains('user-service') || !env.CHANGED_SERVICES }
+                        }
+                    }
                     steps {
                         dir('services/user-service') {
                             script {
@@ -189,35 +287,55 @@ pipeline {
             steps {
                 script {
                     echo "Building Docker images with tag: ${IMAGE_TAG}"
+                    echo "Changed services to build: ${env.CHANGED_SERVICES ?: 'ALL'}"
                     
-                    // Build images in parallel
+                    def changedServicesList = env.CHANGED_SERVICES ? env.CHANGED_SERVICES.split(',') : []
+                    def servicesToBuild = changedServicesList.isEmpty() ? 
+                        ['api-gateway', 'user-service', 'product-service', 'order-service'] : 
+                        changedServicesList
+                    
+                    // Build images in parallel for changed services only
                     def builds = [:]
                     
-                    builds['api-gateway'] = {
-                        dir('services/api-gateway') {
-                            sh "docker build -t ${REGISTRY}/api-gateway:${IMAGE_TAG} -t ${REGISTRY}/api-gateway:latest ."
+                    if (servicesToBuild.contains('api-gateway')) {
+                        builds['api-gateway'] = {
+                            dir('services/api-gateway') {
+                                sh "docker build -t ${REGISTRY}/api-gateway:${IMAGE_TAG} -t ${REGISTRY}/api-gateway:latest ."
+                            }
                         }
                     }
                     
-                    builds['user-service'] = {
-                        dir('services/user-service') {
-                            sh "docker build -t ${REGISTRY}/user-service:${IMAGE_TAG} -t ${REGISTRY}/user-service:latest ."
+                    if (servicesToBuild.contains('user-service')) {
+                        builds['user-service'] = {
+                            dir('services/user-service') {
+                                sh "docker build -t ${REGISTRY}/user-service:${IMAGE_TAG} -t ${REGISTRY}/user-service:latest ."
+                            }
                         }
                     }
                     
-                    builds['product-service'] = {
-                        dir('services/product-service') {
-                            sh "docker build -t ${REGISTRY}/product-service:${IMAGE_TAG} -t ${REGISTRY}/product-service:latest . || echo 'Product service build skipped'"
+                    if (servicesToBuild.contains('product-service')) {
+                        builds['product-service'] = {
+                            dir('services/product-service') {
+                                sh "docker build -t ${REGISTRY}/product-service:${IMAGE_TAG} -t ${REGISTRY}/product-service:latest . || echo 'Product service build skipped'"
+                            }
                         }
                     }
                     
-                    builds['order-service'] = {
-                        dir('services/order-service') {
-                            sh "docker build -t ${REGISTRY}/order-service:${IMAGE_TAG} -t ${REGISTRY}/order-service:latest . || echo 'Order service build skipped'"
+                    if (servicesToBuild.contains('order-service')) {
+                        builds['order-service'] = {
+                            dir('services/order-service') {
+                                sh "docker build -t ${REGISTRY}/order-service:${IMAGE_TAG} -t ${REGISTRY}/order-service:latest . || echo 'Order service build skipped'"
+                            }
                         }
                     }
                     
-                    parallel builds
+                    if (builds.isEmpty()) {
+                        echo "No services to build - skipping Docker image build"
+                    } else {
+                        parallel builds
+                        // Store built services for push stage
+                        env.BUILT_SERVICES = servicesToBuild.join(',')
+                    }
                 }
             }
         }
@@ -232,8 +350,17 @@ pipeline {
             }
             steps {
                 script {
+                    def servicesToPush = env.BUILT_SERVICES ? env.BUILT_SERVICES.split(',') : []
+                    
+                    if (servicesToPush.isEmpty()) {
+                        echo "No services were built - skipping push"
+                        return
+                    }
+                    
+                    echo "Pushing images for services: ${env.BUILT_SERVICES}"
+                    
                     withCredentials([usernamePassword(credentialsId: 'docker-registry', usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        withEnv(["DOCKER_PASS=${DOCKER_PASS}", "DOCKER_USER=${DOCKER_USER}"]) {
+                        withEnv(["DOCKER_PASS=${DOCKER_PASS}", "DOCKER_USER=${DOCKER_USER}", "BUILT_SERVICES=${env.BUILT_SERVICES}"]) {
                             sh '''
                                 set -e
                                 REGISTRY_HOST=$(echo ${REGISTRY} | cut -d'/' -f1)
@@ -243,12 +370,15 @@ pipeline {
                                 
                                 echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin ${REGISTRY_HOST}
                                 
-                                for svc in api-gateway user-service product-service order-service; do
+                                # Push only services that were built
+                                for svc in $(echo "$BUILT_SERVICES" | tr ',' ' '); do
                                     if docker image inspect ${REGISTRY}/${svc}:${IMAGE_TAG} >/dev/null 2>&1; then
+                                        echo "Pushing ${svc}..."
                                         docker push ${REGISTRY}/${svc}:${IMAGE_TAG}
                                         docker push ${REGISTRY}/${svc}:latest
+                                        echo "Successfully pushed ${svc}"
                                     else
-                                        echo "Skipping push for ${svc} (image not built)"
+                                        echo "Warning: Image ${REGISTRY}/${svc}:${IMAGE_TAG} not found, skipping push"
                                     fi
                                 done
                             '''
