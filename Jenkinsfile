@@ -9,7 +9,7 @@ pipeline {
     
     environment {
         DOCKER_COMPOSE_FILE = 'docker-compose.yml'
-        BRANCH_NAME = "${env.BRANCH_NAME ?: env.GIT_BRANCH}"
+        BRANCH_NAME = "${(env.BRANCH_NAME ?: env.GIT_BRANCH)?.replaceFirst(/^origin\//,'')}"
         REGISTRY = "${env.DOCKER_REGISTRY ?: 'docker.io/codewithharshjha'}"
     }
     
