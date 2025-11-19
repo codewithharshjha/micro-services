@@ -236,11 +236,11 @@ pipeline {
                         sh """
                             set -e
                             REGISTRY_HOST=\$(echo ${REGISTRY} | cut -d'/' -f1)
-                            if [ "${REGISTRY}" = "${REGISTRY_HOST}" ]; then
+                            if [ "${REGISTRY}" = "\${REGISTRY_HOST}" ]; then
                                 REGISTRY_HOST=docker.io
                             fi
                             
-                            echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin ${REGISTRY_HOST}
+                            echo ${DOCKER_PASS} | docker login -u ${DOCKER_USER} --password-stdin \${REGISTRY_HOST}
                             
                             for svc in api-gateway user-service product-service order-service; do
                                 if docker image inspect ${REGISTRY}/\${svc}:${IMAGE_TAG} >/dev/null 2>&1; then
